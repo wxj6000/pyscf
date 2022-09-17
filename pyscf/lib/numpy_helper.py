@@ -1158,6 +1158,50 @@ def split_reshape(a, shapes):
         return tensors, size
     return sub_split(a, shapes)[0]
 
+def cleanse_array(a, axis=0, tol=0):
+    '''
+    Remove floating-point errors by setting the
+    numbers with differences smaller than `tol`
+    to the same value. This should allow
+    `numpy.round_` and `numpy.unique` together
+    to work as expected.
+
+    Args:
+        a : ndarray
+            Array to be cleansed.
+        axis : int or None
+            Axis along which the array values are compared.
+            Default is the first axis. If set to None,
+            the flattened array is used.
+        tol : floating
+            Tolerance, default is 0.
+    Returns:
+        Cleansed array.
+    '''
+    def _cleanse_1d(a_flat, tol):
+        sorted_index = numpy.argsort(a_flat, axis=None)
+        sorted_a_flat = a_flat[sorted_index]
+        diff = numpy.diff(sorted_a_flat)
+        cluster_loc = numpy.append(numpy.append(0, numpy.argwhere(diff > tol)[:,0]+1), a_flat.size)
+        for i in range(len(cluster_loc)-1):
+            id0, id1 = cluster_loc[i], cluster_loc[i+1]
+            a_flat[sorted_index[id0:id1]] = a_flat[sorted_index[id0]]
+        return a_flat
+
+    if axis is None:
+        a_flat = a.flatten()
+        return _cleanse_1d(a_flat, tol).reshape(a.shape)
+    else:
+        a0 = numpy.moveaxis(a, axis, -1)
+        shape = a0.shape
+        a0 = a0.reshape(-1, a0.shape[-1])
+        out = []
+        for i in range(len(a0)):
+            out.append(_cleanse_1d(a0[i].flatten(), tol))
+        out = numpy.asarray(out).reshape(shape)
+        return numpy.moveaxis(out, -1, axis)
+
+
 if __name__ == '__main__':
     a = numpy.random.random((30,40,5,10))
     b = numpy.random.random((10,30,5,20))

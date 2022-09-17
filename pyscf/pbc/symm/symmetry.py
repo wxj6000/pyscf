@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2014-2020 The PySCF Developers. All Rights Reserved.
+# Copyright 2020-2022 The PySCF Developers. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -111,7 +111,7 @@ class Symmetry():
             Whether space group is symmorphic
         has_inversion : bool
             Whether space group contains inversion operation
-        ops : list of :class:`SpaceGroup_element` object
+        ops : list of :class:`SPGElement` object
             Symmetry operators (may be a subset of the operators in the space group)
         nop : int
             Length of `ops`.
@@ -124,7 +124,7 @@ class Symmetry():
         self.cell = cell
         self.spacegroup = None
         self.symmorphic = True
-        self.ops = [space_group.SpaceGroup_element(),]
+        self.ops = [space_group.SPGElement(),]
         self.nop = len(self.ops)
         self.has_inversion = False
         self.Dmats = None
@@ -150,7 +150,7 @@ class Symmetry():
                 rm_list = check_mesh_symmetry(self.cell, self.ops)
                 self.ops[:] = [op for i, op in enumerate(self.ops) if i not in rm_list]
         else:
-            self.ops = [space_group.SpaceGroup_element(),]
+            self.ops = [space_group.SPGElement(),]
         self.nop = len(self.ops)
         self.has_inversion = any([op.rot_is_inversion for op in self.ops])
 
@@ -270,7 +270,7 @@ def transform_mo_coeff(cell, kpt_scaled, mo_coeff, op, Dmats):
             scaled k-point
         mo_coeff : (nao, nmo) array
             MO coefficients at the input k-point
-        op : :class:`SpaceGroup_element` object
+        op : :class:`SPGElement` object
             Space group operation that connects the two k-points
         Dmats: list of arrays
             Wigner D-matrices for op

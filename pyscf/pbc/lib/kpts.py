@@ -130,7 +130,7 @@ def make_ktuples_ibz(kpts, kpts_scaled=None, ntuple=2, tol=KPT_DIFF_TOL):
         op_rot = np.asarray([op.a2b(cell).rot for op in kpts.ops])
         if kpts.time_reversal:
             op_rot = np.concatenate([op_rot, -op_rot])
-        bz2bz_ksks = map_k_tuples(kpts_scaled, op_rot, ntuple=ntuple, tol=tol)
+        bz2bz_ksks = map_kpts_tuples(kpts_scaled, op_rot, ntuple=ntuple, tol=tol)
         bz2bz_ksks[:, np.unique(np.where(bz2bz_ksks == -1)[1])] = -1
         nbzk2 = bz2bz_ksks.shape[0]
     else:
@@ -298,6 +298,7 @@ def map_k_points_fast(kpts_scaled, ops, tol=KPT_DIFF_TOL):
             bz2bz_ks[k1,s] = k2 if ops[s] * kpts_scaled[k1] = kpts_scaled[k2] + K,
             where K is a reciprocal lattice vector.
     """
+    '''
     nkpts = len(kpts_scaled)
     nop = len(ops)
     bz2bz_ks = -np.ones((nkpts, nop), dtype=int)
@@ -308,7 +309,7 @@ def map_k_points_fast(kpts_scaled, ops, tol=KPT_DIFF_TOL):
         # Do some work on the input
         k_kc = np.concatenate([kpts_scaled, op_kpts_scaled])
         k_kc = np.mod(np.mod(k_kc, 1), 1)
-        k_kc = aglomerate_points(k_kc, tol)
+        k_kc = cleanse_kpts(k_kc, tol)
         k_kc = k_kc.round(-np.log10(tol).astype(int))
         k_kc = np.mod(k_kc, 1)
 
@@ -327,8 +328,11 @@ def map_k_points_fast(kpts_scaled, ops, tol=KPT_DIFF_TOL):
         assert (orders[1] >= nkpts).all()
         bz2bz_ks[orders[1] - nkpts, s] = orders[0]
     return bz2bz_ks
+    '''
+    return map_kpts_tuples(kpts_scaled.reshape(len(kpts_scaled),-1,3),
+                           ops, ntuple=1, tol=tol)
 
-def map_k_tuples(kpts_scaled, ops, ntuple=2, tol=KPT_DIFF_TOL):
+def map_kpts_tuples(kpts_scaled, ops, ntuple=2, tol=KPT_DIFF_TOL):
     """
     Find symmetry-related k-point tuples.
 
@@ -341,8 +345,8 @@ def map_k_tuples(kpts_scaled, ops, ntuple=2, tol=KPT_DIFF_TOL):
         ntuple : int
             Dimension of tuples. Default is 2.
         tol : float
-            K-points differ by ``tol`` are considered as different.
-            Default is 1e-6.
+            K-points differ less than ``tol`` are considered
+            as the same. Default is 1e-6.
 
     Returns
     -------
@@ -355,54 +359,31 @@ def map_k_tuples(kpts_scaled, ops, ntuple=2, tol=KPT_DIFF_TOL):
     nop = len(ops)
     bz2bz_ks = -np.ones((nkpts, nop), dtype=int)
     for s, op in enumerate(ops):
-        # Find mapped kpoints
         op_kpts_scaled = np.empty((nkpts, ntuple, 3), dtype=float)
         for i in range(ntuple):
             op_kpts_scaled[:,i] = np.dot(kpts_scaled[:,i], op.T)
         op_kpts_scaled = op_kpts_scaled.reshape((nkpts,-1))
 
-        # Do some work on the input
-        k_kc = np.concatenate([kpts_scaled.reshape((nkpts,-1)), op_kpts_scaled])
-        k_kc = np.mod(np.mod(k_kc, 1), 1)
-        k_kc = aglomerate_points(k_kc, tol)
-        k_kc = k_kc.round(-np.log10(tol).astype(int))
-        k_kc = np.mod(k_kc, 1)
+        k_opk = np.concatenate([kpts_scaled.reshape((nkpts,-1)), op_kpts_scaled])
+        k_opk = np.mod(np.mod(k_opk, 1), 1)
+        k_opk = cleanse_kpts(k_opk, tol)
+        k_opk = k_opk.round(-np.log10(tol).astype(int))
+        k_opk = np.mod(k_opk, 1)
+        order = np.lexsort(k_opk.T)
+        k_opk = k_opk[order]
+        diff = np.diff(k_opk, axis=0)
+        equivalent_pairs = np.array((diff == 0).all(1), dtype=bool)
 
-        # Find the lexicographical order
-        order = np.lexsort(k_kc.T)
-        k_kc = k_kc[order]
-        diff_kc = np.diff(k_kc, axis=0)
-        equivalentpairs_k = np.array((diff_kc == 0).all(1), dtype=bool)
+        maps = np.array([order[:-1][equivalent_pairs],
+                         order[ 1:][equivalent_pairs]])
 
-        # Mapping array.
-        orders = np.array([order[:-1][equivalentpairs_k],
-                           order[1:][equivalentpairs_k]])
-
-        # This has to be true.
-        assert (orders[0] < nkpts).all()
-        assert (orders[1] >= nkpts).all()
-        bz2bz_ks[orders[1] - nkpts, s] = orders[0]
+        assert (maps[0] < nkpts).all()
+        assert (maps[1] >= nkpts).all()
+        bz2bz_ks[maps[1] - nkpts, s] = maps[0]
     return bz2bz_ks
 
-def aglomerate_points(k_kc, tol=KPT_DIFF_TOL):
-    #This routine is adopted from GPAW
-    '''
-    Remove numerical error
-    '''
-    nd = k_kc.shape[1]
-    nbzkpts = len(k_kc)
-
-    inds_kc = np.argsort(k_kc, axis=0)
-
-    for c in range(nd):
-        sk_k = k_kc[inds_kc[:, c], c]
-        dk_k = np.diff(sk_k)
-
-        pt_K = np.argwhere(dk_k > tol)[:, 0]
-        pt_K = np.append(np.append(0, pt_K + 1), nbzkpts*2)
-        for i in range(len(pt_K) - 1):
-            k_kc[inds_kc[pt_K[i]:pt_K[i + 1], c], c] = k_kc[inds_kc[pt_K[i], c], c]
-    return k_kc
+def cleanse_kpts(kpts, tol=KPT_DIFF_TOL):
+    return lib.cleanse_array(kpts, axis=0, tol=tol)
 
 def symmetrize_density(kpts, rhoR_k, ibz_k_idx, mesh):
     '''
