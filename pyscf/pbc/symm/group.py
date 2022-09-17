@@ -278,7 +278,6 @@ class FiniteGroup():
         else:
             return chi
 
-
 class PointGroup(FiniteGroup):
     '''
     The class for crystallographic point groups.
