@@ -18,7 +18,6 @@
 
 from abc import ABC, abstractmethod
 import numpy as np
-from multimethod import multimethod
 from pyscf.pbc.symm import geom
 from pyscf.pbc.symm import symmetry
 
@@ -234,7 +233,7 @@ class FiniteGroup():
         inverse = -np.ones((self.order), dtype=int)
         diff = (self.conjugacy_mask[None,:,:]==classes[:,None,:]).all(axis=-1)
         for i, a in enumerate(diff):
-            inverse[np.where(a==True)[0]] = i
+            inverse[np.where(a==True)[0]] = i # noqa: E712 
         assert (inverse >= 0).all()
         assert (classes[inverse] == self.conjugacy_mask).all()
         return classes, representatives, inverse
@@ -285,7 +284,7 @@ class PointGroup(FiniteGroup):
         name = geom.get_crystal_class(None, self.elements)[0]
         if notation.lower().startswith('scho'): # Schoenflies
             from pyscf.pbc.symm.tables import SchoenfliesNotation
-            name = SchoenfliesNotation[name] 
+            name = SchoenfliesNotation[name]
         return name
 
 

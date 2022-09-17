@@ -22,7 +22,7 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf.pbc.symm import geom
 from functools import reduce
-from pyscf.pbc.symm.group import PGElement 
+from pyscf.pbc.symm.group import PGElement
 
 SYMPREC = getattr(__config__, 'pbc_symm_space_group_symprec', 1e-6)
 XYZ = np.eye(3)
