@@ -271,7 +271,6 @@ class FiniteGroup():
         chi_copy[:,1:] *= -1
         idx = np.lexsort(np.rot90(chi_copy))
         chi = chi[idx]
-        print(chi)
         if return_full_table:
             chi_full = chi[:, inverse]
             return chi, chi_full
@@ -383,5 +382,7 @@ if __name__ == "__main__":
     mol.build(False, False, atom=atoms)
     mol_so = mol_symm_adapted_basis(mol, gpname)[0]
 
-    for i in range(len(so)):
-        print(abs(so[i] - mol_so[i]).max())
+    print(abs(so[0] - mol_so[0]).max())
+    print(abs(so[1] - mol_so[1]).max())
+    print(abs(so[2] - mol_so[3]).max())
+    print(abs(so[3] - mol_so[2]).max())
