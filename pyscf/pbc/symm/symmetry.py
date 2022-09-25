@@ -18,25 +18,16 @@
 
 import sys
 import copy
+from functools import reduce
 import numpy as np
-from numpy.linalg import inv
+from numpy.linalg import inv, det
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.symm import param
 from pyscf.symm.Dmatrix import Dmatrix, get_euler_angles
 from pyscf.pbc.symm import space_group
 from pyscf.pbc.symm.space_group import SYMPREC, XYZ
-from functools import reduce
-
-def _is_right_handed(c):
-    '''
-    Check if coordinate system is right-handed
-    '''
-    x = c[0]
-    y = c[1]
-    z = c[2]
-    val = np.dot(np.cross(x,y), z)
-    return val > 0
+from pyscf.pbc.tools import pbc as pbctools
 
 def get_Dmat(op, l):
     '''
@@ -47,17 +38,18 @@ def get_Dmat(op, l):
         l : int
             angular momentum
     '''
+    fac = 1
+    det_op = det(op)
+    if det_op < 0: 
+        # improper rotation has |R| = -1
+        assert abs(det_op + 1) < 1e-9
+        op = -1 * op
+        fac = (-1) ** l 
+        
     c1 = XYZ
     c2 = np.dot(inv(op), c1.T).T
-    right_handed = _is_right_handed(c2)
     alpha, beta, gamma = get_euler_angles(c1, c2)
-    D = Dmatrix(l, alpha, beta, gamma, reorder_p=True)
-    if not right_handed:
-        if l > 7:
-            raise NotImplementedError("Parities for orbitals with l > 7 are unknown.")
-        for m in range(-l, l+1):
-            if param.SPHERIC_GTO_PARITY_ODD[l][m+l][0]:
-                D[:, m+l] *= -1.0
+    D = fac * Dmatrix(l, alpha, beta, gamma, reorder_p=True)
     return D.round(15)
 
 def get_Dmat_cart(op,l_max):
@@ -192,33 +184,31 @@ def check_mesh_symmetry(cell, ops, mesh=None, tol=SYMPREC):
                     \nRecommended mesh is %s', mesh1)
     return rm_list
 
-def _get_phase(cell, op, coords_scaled, kpt_scaled, ignore_phase=False):
-    natm = cell.natm
-    phase = np.ones([natm], dtype = np.complex128)
+def _get_phase(cell, op, kpt_scaled, ignore_phase=False, tol=SYMPREC):
+    kpt_scaled = op.a2b(cell).dot_rot(kpt_scaled)
+    coords_scaled = cell.get_scaled_positions().reshape(-1,3)
+    natm = coords_scaled.shape[0]
+    phase = np.ones((natm,), dtype=np.complex128)
     atm_map = np.arange(natm)
-    coords0 = np.mod(coords_scaled, 1).round(-np.log10(SYMPREC).astype(int))
-    coords0 = np.mod(coords0, 1)
+    coords0 = pbctools.round_to_cell0(coords_scaled, tol=tol)
     for iatm in range(natm):
         r = coords_scaled[iatm]
-        op_dot_r = op.dot_rot(r - op.inv().trans)
-        #op_dot_r = op.inv().dot_rot(r) - op.inv().trans
-        op_dot_r_0 = np.mod(np.mod(op_dot_r, 1), 1)
-        op_dot_r_0 = op_dot_r_0.round(-np.log10(SYMPREC).astype(int))
-        op_dot_r_0 = np.mod(op_dot_r_0, 1)
-        diff = np.einsum('ki->k', abs(op_dot_r_0 - coords0))
-        atm_map[iatm] = np.where(diff < SYMPREC)[0]
-        r_diff = coords_scaled[atm_map[iatm]] - op_dot_r
-        #r_diff = op_dot_r_0 - op_dot_r
-        #sanity check
-        assert(np.linalg.norm(r_diff - r_diff.round()) < SYMPREC)
+        op_dot_r = op.dot_rot(r) + op.trans
+        op_dot_r_0 = pbctools.round_to_cell0(op_dot_r, tol=tol)
+        equiv_atm = np.where(abs(op_dot_r_0 - coords0).sum(axis=1) < tol)[0]
+        assert len(equiv_atm) == 1
+        equiv_atm = equiv_atm[0]
+        atm_map[iatm] = equiv_atm
+        Lshift = coords_scaled[equiv_atm] - op_dot_r
+        # Lshift is a lattice vector
+        assert abs(Lshift - Lshift.round()).sum() < tol
         if not ignore_phase:
-            phase[iatm] = np.exp(-1j * np.dot(kpt_scaled, r_diff) * 2.0 * np.pi)
+            phase[iatm] = np.exp(-1j * np.dot(kpt_scaled, Lshift) * 2.0 * np.pi)
     return atm_map, phase
 
-def _get_rotation_mat(cell, kpt_scaled_ibz, mo_coeff_or_dm, op, Dmats, ignore_phase=False):
-    kpt_scaled = op.a2b(cell).dot_rot(kpt_scaled_ibz)
-    coords = cell.get_scaled_positions()
-    atm_map, phases = _get_phase(cell, op, coords, kpt_scaled, ignore_phase)
+def _get_rotation_mat(cell, kpt_scaled_ibz, mo_coeff_or_dm, op, Dmats,
+                      ignore_phase=False, tol=SYMPREC):
+    atm_map, phases = _get_phase(cell, op, kpt_scaled_ibz, ignore_phase, tol)
 
     dim = mo_coeff_or_dm.shape[0]
     mat = np.zeros([dim, dim], dtype=np.complex128)

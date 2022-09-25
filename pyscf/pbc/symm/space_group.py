@@ -51,6 +51,7 @@ def transform_rot(op, a, b, allow_non_integer=False):
     '''
     P = np.dot(np.linalg.inv(b.T), a.T)
     R = reduce(np.dot,(P, op, np.linalg.inv(P))).round(15)
+    R[np.where(abs(R) < 1e-9)] = 0
     if not allow_non_integer:
         if(np.amax(np.absolute(R-R.round())) > SYMPREC):
             raise RuntimeError("Point-group symmetries of the two coordinate systems are different.")

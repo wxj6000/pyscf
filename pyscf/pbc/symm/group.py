@@ -19,7 +19,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
 from pyscf.pbc.symm import geom
-from pyscf.pbc.symm import symmetry
 
 class GroupElement(ABC):
     '''
@@ -233,7 +232,7 @@ class FiniteGroup():
         inverse = -np.ones((self.order), dtype=int)
         diff = (self.conjugacy_mask[None,:,:]==classes[:,None,:]).all(axis=-1)
         for i, a in enumerate(diff):
-            inverse[np.where(a==True)[0]] = i # noqa: E712 
+            inverse[np.where(a==True)[0]] = i # noqa: E712
         assert (inverse >= 0).all()
         assert (classes[inverse] == self.conjugacy_mask).all()
         return classes, representatives, inverse
@@ -286,102 +285,3 @@ class PointGroup(FiniteGroup):
             from pyscf.pbc.symm.tables import SchoenfliesNotation
             name = SchoenfliesNotation[name]
         return name
-
-
-def symm_adapted_basis(cell):
-    sym = symmetry.Symmetry(cell).build(symmorphic=True)
-    Dmats = sym.Dmats
-
-    elements = []
-    for op in sym.ops:
-        assert(op.trans_is_zero)
-        elements.append(op.rot)
-
-    elements = np.unique(np.asarray(elements), axis=0)
-    elements = [PGElement(rot) for rot in elements]
-    elements.sort()
-
-    pg = PointGroup(elements)
-    chartab = pg.character_table(return_full_table=True)[1]
-    nirrep = len(chartab)
-    nao = cell.nao
-    coords = cell.get_scaled_positions()
-    atm_maps = []
-    for op in sym.ops:
-        atm_map, _ = symmetry._get_phase(cell, op, coords, None, ignore_phase=True)
-        atm_maps.append(atm_map)
-    atm_maps = np.asarray(atm_maps)
-    tmp = np.unique(atm_maps, axis=0)
-    tmp = np.sort(tmp, axis=0)
-    tmp = np.unique(tmp, axis=1)
-    eql_atom_ids = []
-    for i in range(tmp.shape[-1]):
-        eql_atom_ids.append(np.unique(tmp[:,i]))
-
-    aoslice = cell.aoslice_by_atom()
-    cbase = np.zeros((nirrep, nao, nao))
-    for atom_ids in eql_atom_ids:
-        iatm = atom_ids[0]
-        op_relate_idx = []
-        for iop in range(pg.order):
-            op_relate_idx.append(atm_maps[iop][iatm])
-        ao_loc = np.array([aoslice[i,2] for i in op_relate_idx])
-
-        b0, b1 = aoslice[iatm,:2]
-        ioff = 0
-        icol = aoslice[iatm, 2]
-        for ib in range(b0, b1):
-            nctr = cell.bas_nctr(ib)
-            l = cell.bas_angular(ib)
-            if cell.cart:
-                degen = (l+1) * (l+2) // 2
-            else:
-                degen = l * 2 + 1
-            for n in range(degen):
-                for iop in range(pg.order):
-                    Dmat = Dmats[iop][l]
-                    tmp = np.einsum('x,y->xy', chartab[:,iop], Dmat[:,n])
-                    idx = ao_loc[iop] + ioff
-                    for ictr in range(nctr):
-                        cbase[:, idx:idx+degen, icol+n+ictr*degen] += tmp / pg.order
-                        idx += degen
-            ioff += degen * nctr
-            icol += degen * nctr
-
-    so = []
-    for ir in range(nirrep):
-        idx = np.where(np.sum(abs(cbase[ir]), axis=0) > 1e-9)[0]
-        so.append(cbase[ir][:,idx])
-
-    for ir in range(nirrep):
-        norm = np.linalg.norm(so[ir], axis=0)
-        so[ir] /= norm[None,:]
-    return so
-
-if __name__ == "__main__":
-    from pyscf.pbc import gto
-    cell = gto.Cell()
-    cell.atom = [['O' , (1. , 0.    , 0.   ,)],
-                 ['H' , (0. , -.757 , 0.587,)],
-                 ['H' , (0. , 0.757 , 0.587,)]]
-    cell.a = [[1., 0., 0.],
-              [0., 1., 0.],
-              [0., 0., 1.]]
-    cell.basis = 'ccpvdz'
-    cell.verbose = 5
-    cell.build()
-    so = symm_adapted_basis(cell)
-
-    from pyscf import gto as mol_gto
-    from pyscf.symm import geom as mol_geom
-    from pyscf.symm.basis import symm_adapted_basis as mol_symm_adapted_basis
-    mol = cell.copy()
-    gpname, origin, axes = mol_geom.detect_symm(mol._atom)
-    atoms = mol_gto.format_atom(cell._atom, origin, axes)
-    mol.build(False, False, atom=atoms)
-    mol_so = mol_symm_adapted_basis(mol, gpname)[0]
-
-    print(abs(so[0] - mol_so[0]).max())
-    print(abs(so[1] - mol_so[1]).max())
-    print(abs(so[2] - mol_so[3]).max())
-    print(abs(so[3] - mol_so[2]).max())

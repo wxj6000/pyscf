@@ -46,8 +46,8 @@ def round_to_fbz(kpts, wrap_around=False, tol=KPT_DIFF_TOL):
             K-points differ less than tol are considered as the same.
             Default value is 1e-6.
     '''
-    kpts_round = np.mod(kpts, 1)
-    kpts_round = kpts_round.round(-np.log10(tol).astype(int))
+    decimal = -np.log10((tol+1e-16)/10.).astype(int)
+    kpts_round = np.mod(kpts, 1).round(decimal)
     kpts_round = np.mod(kpts_round, 1)
     if wrap_around:
         kpts_round[kpts_round >= 0.5] -= 1.0

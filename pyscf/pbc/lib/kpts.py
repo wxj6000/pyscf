@@ -91,10 +91,22 @@ def make_kpts_ibz(kpts):
                 break
 
     for i in range(kpts.nkpts_ibz):
-        ibz_k_scaled = kpts.kpts_scaled_ibz[i]
         idx = np.where(kpts.bz2ibz == i)[0]
         kpts.stars.append(idx)
         kpts.stars_ops.append(kpts.stars_ops_bz[idx])
+
+    little_cogroup_ops = []
+    for k, kpt in enumerate(kpts.kpts_scaled_ibz):
+        ops_id = []
+        for io, op in enumerate(op_rot):
+            if -1 in bz2bz_ks[:,io]:
+                continue
+            diff = kpt - np.dot(kpt, op.T)
+            diff = diff - diff.round()
+            if (np.absolute(diff) < KPT_DIFF_TOL).all():
+                ops_id.append(io % nop)
+        little_cogroup_ops.append(np.asarray(ops_id))
+    kpts.little_cogroup_ops = little_cogroup_ops
 
 def make_ktuples_ibz(kpts, kpts_scaled=None, ntuple=2, tol=KPT_DIFF_TOL):
     """
