@@ -46,6 +46,7 @@ class GroupElement(ABC):
         '''
         pass
 
+
 class PGElement(GroupElement):
     '''
     The class for crystallographic point group elements.
@@ -83,6 +84,29 @@ class PGElement(GroupElement):
             r += _id(np.ones((d,d), dtype=int)) + 1
         return r
 
+    @staticmethod
+    def decrypt_hash(h, dimension=3):
+        if dimension == 3:
+            id_eye = int('211121112', 3)
+            id_max = int('222222222', 3)
+        elif dimension == 2:
+            id_eye = int('2112', 3)
+            id_max = int('2222', 3)
+        else:
+            raise NotImplementedError
+
+        r = h + id_eye
+        if r > id_max:
+            r -= id_max + 1
+        s = np.base_repr(r, 3)
+        s = '0'*(dimension**2-len(s)) + s
+        rot = np.asarray([int(i) for i in s]) - 1
+        rot = rot.reshape(dimension,dimension)
+        # sanity check
+        #element = PGElement(rot)
+        #assert hash(element) == h
+        return rot
+
     def __lt__(self, other):
         if not isinstance(other, PGElement):
             raise TypeError(f"{other} is not a point group element.")
@@ -101,7 +125,8 @@ class PGElement(GroupElement):
     def inv(self):
         return PGElement(np.asarray(np.linalg.inv(self.matrix), dtype=np.int32))
 
-class FiniteGroup():
+
+class FiniteGroup(ABC):
     '''
     The class for finite groups.
 
@@ -111,7 +136,9 @@ class FiniteGroup():
         order : int
             Group order.
     '''
-    def __init__(self, elements):
+    def __init__(self, elements, from_hash=False):
+        if from_hash:
+            elements = self.__class__.elements_from_hash(elements)
         self.elements = np.asarray(elements)
         self._order = None
         self._hash_table = None
@@ -119,12 +146,48 @@ class FiniteGroup():
         self._multiplication_table = None
         self._conjugacy_table = None
         self._conjugacy_mask = None
+        self._chartab_full = None
+        self._chartab = None
+
+    @staticmethod
+    @abstractmethod
+    def elements_from_hash(hashes, **kwargs):
+        pass
 
     def __len__(self):
         return self.order
 
     def __getitem__(self, i):
         return self.elements[i]
+
+    def __and__(self, other):
+        if type(self) is not type(other):
+            raise TypeError(f'{self} and {other} must be the same type')
+        if self is other:
+            return self
+        hi = list(self.hash_table.keys())
+        hj = list(other.hash_table.keys())
+        hij = np.intersect1d(hi, hj)
+        return self.__class__(hij, from_hash=True)
+
+    def __or__(self, other):
+        if type(self) is not type(other):
+            raise TypeError(f'{self} and {other} must be the same type')
+        if self is other:
+            return self
+        hi = list(self.hash_table.keys())
+        hj = list(other.hash_table.keys())
+        hij = np.union1d(hi, hj)
+        return self.__class__(hij, from_hash=True)
+
+    def issubset(self, other):
+        if type(self) is not type(other):
+            raise TypeError(f'{self} and {other} must be the same type')
+        if self is other:
+            return True
+        hi = list(self.hash_table.keys())
+        hj = list(other.hash_table.keys())
+        return set(hi).issubset(set(hj))
 
     @property
     def order(self):
@@ -237,20 +300,29 @@ class FiniteGroup():
         assert (classes[inverse] == self.conjugacy_mask).all()
         return classes, representatives, inverse
 
-    def character_table(self, return_full_table=False):
+    def character_table(self, return_full_table=False, recompute=False):
         '''
         Character table of the group.
 
         Args:
             return_full_table : bool
-                If True, also return character table for all elements.
+                If True, return the characters for all elements.
+            recompute : bool
+                Whether to recompute the character table. Default is False,
+                meaning to use the cached table if possible.
 
         Returns:
-            chi : array
+            chartab : array
                 Character table for classes.
-            chi_full : array, optional
+            chartab_full : array, optional
                 Character table for all elements.
         '''
+        if not recompute:
+            if not return_full_table and self._chartab is not None:
+                return self._chartab
+            if return_full_table and self._chartab_full is not None:
+                return self._chartab_full
+
         classes, _, inverse = self.conjugacy_classes()
         class_sizes = classes.sum(axis=1)
 
@@ -269,11 +341,36 @@ class FiniteGroup():
         chi_copy[:,1:] *= -1
         idx = np.lexsort(np.rot90(chi_copy))
         chi = chi[idx]
+        self._chartab = chi
+        self._chartab_full = chi[:, inverse]
         if return_full_table:
-            chi_full = chi[:, inverse]
-            return chi, chi_full
+            return self._chartab_full
         else:
+            return self._chartab
+
+    def project_chi(self, chi, other):
+        '''
+        Project characters to another group.
+        '''
+        if self is other:
             return chi
+        i_ind, j_ind = self.get_elements_map(other)
+        chi_j = np.zeros((other.order,))
+        chi_j[j_ind] = chi[i_ind]
+        return chi_j
+
+    def get_elements_map(self, other):
+        if not (other.issubset(self) or self.issubset(other)):
+            raise KeyError(f'{self} or {other} must be a subset of the other.')
+        hi = [hash(g) for g in self.elements]
+        hj = [hash(g) for g in other.elements]
+        _, i_ind, j_ind = np.intersect1d(hi, hj, return_indices=True)
+        return i_ind, j_ind
+
+    def get_irrep_chi(self, ir):
+        chartab = self.character_table(True)
+        return chartab[ir]
+
 
 class PointGroup(FiniteGroup):
     '''
@@ -285,3 +382,62 @@ class PointGroup(FiniteGroup):
             from pyscf.pbc.symm.tables import SchoenfliesNotation
             name = SchoenfliesNotation[name]
         return name
+
+    @staticmethod
+    def elements_from_hash(hashes, dimension=3):
+        elements = [PGElement(PGElement.decrypt_hash(h, dimension)) for h in hashes]
+        return elements
+
+
+class Representation:
+    '''
+    Helper class for representation reductions.
+    Only characters are stored at the moment.
+    '''
+    def __init__(self, group, rep=None, chi=None):
+        self.group = group
+        self.rep = rep
+        self.chi = chi
+
+    @property
+    def rep(self):
+        if self._rep is None:
+            self._rep = self.chi_to_rep(self.chi)
+        return self._rep
+
+    @rep.setter
+    def rep(self, value):
+        self._rep = value
+
+    @property
+    def chi(self):
+        if self._chi is None:
+            self._chi = self.rep_to_chi(self.rep)
+        return self._chi
+
+    @chi.setter
+    def chi(self, value):
+        self._chi = value
+
+    def rep_to_chi(self, rep):
+        chartab = self.group.character_table(True)
+        chi = np.einsum('ni,n->i', chartab, rep)
+        return chi
+
+    def chi_to_rep(self, chi):
+        group = self.group
+        chartab = group.character_table(True)
+        assert len(chi) == chartab.shape[1]
+        nA = np.einsum('ni,i->n', chartab.conj(), chi) / group.order
+        assert (abs(nA - nA.round()) < 1e-9).all()
+        nA = np.rint(nA).astype(int)
+        return nA
+
+    def __matmul__(self, other):
+        g1, chi1 =  self.group,  self.chi
+        g2, chi2 = other.group, other.chi
+        g12 = g1 & g2
+        chi1_proj = g1.project_chi(chi1, g12)
+        chi2_proj = g2.project_chi(chi2, g12)
+        chi12_proj = chi1_proj * chi2_proj
+        return self.__class__(g12, chi=chi12_proj)

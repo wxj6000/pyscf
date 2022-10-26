@@ -22,12 +22,13 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf import __config__
 from pyscf.pbc.symm import symmetry as symm
-from pyscf.pbc.lib.kpts_helper import member, KPT_DIFF_TOL, KptsHelper
+from pyscf.pbc.symm.group import PGElement, PointGroup, Representation
+from pyscf.pbc.lib.kpts_helper import member, round_to_fbz, KPT_DIFF_TOL, KptsHelper
 from numpy.linalg import inv
 
 libpbc = lib.load_library('libpbc')
 
-def make_kpts_ibz(kpts):
+def make_kpts_ibz(kpts, tol=KPT_DIFF_TOL):
     """
     Locate k-points in IBZ.
 
@@ -46,7 +47,7 @@ def make_kpts_ibz(kpts):
     if kpts.time_reversal:
         op_rot = np.concatenate([op_rot, -op_rot])
 
-    bz2bz_ks = map_k_points_fast(kpts.kpts_scaled, op_rot, KPT_DIFF_TOL)
+    bz2bz_ks = map_k_points_fast(kpts.kpts_scaled, op_rot, tol)
     kpts.k2opk = bz2bz_ks.copy()
     if -1 in bz2bz_ks:
         bz2bz_ks[:, np.unique(np.where(bz2bz_ks == -1)[1])] = -1
@@ -85,7 +86,7 @@ def make_kpts_ibz(kpts):
                 continue
             diff = bz_k_scaled - np.dot(ibz_k_scaled, op.T)
             diff = diff - diff.round()
-            if (np.absolute(diff) < KPT_DIFF_TOL).all():
+            if (np.absolute(diff) < tol).all():
                 kpts.time_reversal_symm_bz[k] = io // nop
                 kpts.stars_ops_bz[k] = io % nop
                 break
@@ -103,7 +104,7 @@ def make_kpts_ibz(kpts):
                 continue
             diff = kpt - np.dot(kpt, op.T)
             diff = diff - diff.round()
-            if (np.absolute(diff) < KPT_DIFF_TOL).all():
+            if (np.absolute(diff) < tol).all():
                 ops_id.append(io % nop)
         little_cogroup_ops.append(np.asarray(ops_id))
     kpts.little_cogroup_ops = little_cogroup_ops
@@ -310,37 +311,6 @@ def map_k_points_fast(kpts_scaled, ops, tol=KPT_DIFF_TOL):
             bz2bz_ks[k1,s] = k2 if ops[s] * kpts_scaled[k1] = kpts_scaled[k2] + K,
             where K is a reciprocal lattice vector.
     """
-    '''
-    nkpts = len(kpts_scaled)
-    nop = len(ops)
-    bz2bz_ks = -np.ones((nkpts, nop), dtype=int)
-    for s, op in enumerate(ops):
-        # Find mapped kpoints
-        op_kpts_scaled = np.dot(kpts_scaled, op.T)
-
-        # Do some work on the input
-        k_kc = np.concatenate([kpts_scaled, op_kpts_scaled])
-        k_kc = np.mod(np.mod(k_kc, 1), 1)
-        k_kc = cleanse_kpts(k_kc, tol)
-        k_kc = k_kc.round(-np.log10(tol).astype(int))
-        k_kc = np.mod(k_kc, 1)
-
-        # Find the lexicographical order
-        order = np.lexsort(k_kc.T)
-        k_kc = k_kc[order]
-        diff_kc = np.diff(k_kc, axis=0)
-        equivalentpairs_k = np.array((diff_kc == 0).all(1), dtype=bool)
-
-        # Mapping array.
-        orders = np.array([order[:-1][equivalentpairs_k],
-                           order[1:][equivalentpairs_k]])
-
-        # This has to be true.
-        assert (orders[0] < nkpts).all()
-        assert (orders[1] >= nkpts).all()
-        bz2bz_ks[orders[1] - nkpts, s] = orders[0]
-    return bz2bz_ks
-    '''
     return map_kpts_tuples(kpts_scaled.reshape(len(kpts_scaled),-1,3),
                            ops, ntuple=1, tol=tol)
 
@@ -371,16 +341,11 @@ def map_kpts_tuples(kpts_scaled, ops, ntuple=2, tol=KPT_DIFF_TOL):
     nop = len(ops)
     bz2bz_ks = -np.ones((nkpts, nop), dtype=int)
     for s, op in enumerate(ops):
-        op_kpts_scaled = np.empty((nkpts, ntuple, 3), dtype=float)
-        for i in range(ntuple):
-            op_kpts_scaled[:,i] = np.dot(kpts_scaled[:,i], op.T)
+        op_kpts_scaled = np.einsum('kix,xy->kiy', kpts_scaled, op.T)
         op_kpts_scaled = op_kpts_scaled.reshape((nkpts,-1))
 
         k_opk = np.concatenate([kpts_scaled.reshape((nkpts,-1)), op_kpts_scaled])
-        k_opk = np.mod(np.mod(k_opk, 1), 1)
-        k_opk = cleanse_kpts(k_opk, tol)
-        k_opk = k_opk.round(-np.log10(tol).astype(int))
-        k_opk = np.mod(k_opk, 1)
+        k_opk = round_to_fbz(k_opk, tol=tol)
         order = np.lexsort(k_opk.T)
         k_opk = k_opk[order]
         diff = np.diff(k_opk, axis=0)
@@ -393,9 +358,6 @@ def map_kpts_tuples(kpts_scaled, ops, ntuple=2, tol=KPT_DIFF_TOL):
         assert (maps[1] >= nkpts).all()
         bz2bz_ks[maps[1] - nkpts, s] = maps[0]
     return bz2bz_ks
-
-def cleanse_kpts(kpts, tol=KPT_DIFF_TOL):
-    return lib.cleanse_array(kpts, axis=0, tol=tol)
 
 def symmetrize_density(kpts, rhoR_k, ibz_k_idx, mesh):
     '''
@@ -877,6 +839,10 @@ class KPoints(symm.Symmetry, lib.StreamObject):
         #private variables
         self._nkpts = len(self.kpts)
         self._nkpts_ibz = len(self.kpts_ibz)
+        self._addition_table = None
+        self._inverse_table = None
+        self._copgs = None
+        self._copg_ops_map_ibz2bz = None
 
     @property
     def nkpts(self):
@@ -933,10 +899,10 @@ class KPoints(symm.Symmetry, lib.StreamObject):
     def dump_info(self):
         if self.verbose >= logger.INFO:
             logger.info(self, 'time reversal: %s', self.time_reversal)
-            logger.info(self, 'k-points in IBZ                           weights')
+            logger.info(self, 'k-points in IBZ                         weights')
             ibzk = self.kpts_scaled_ibz
             for k in range(self.nkpts_ibz):
-                logger.info(self, '%d:  %11.8f, %11.8f, %11.8f    %d/%d',
+                logger.info(self, '%3d: %9.6f, %9.6f, %9.6f    %d/%d',
                             k, ibzk[k][0], ibzk[k][1], ibzk[k][2],
                             np.floor(self.weights_ibz[k]*self.nkpts), self.nkpts)
 
@@ -968,6 +934,61 @@ class KPoints(symm.Symmetry, lib.StreamObject):
                 res.append(ki)
             yield tuple(res)
 
+    @property
+    def addition_table(self, tol=KPT_DIFF_TOL):
+        if self._addition_table is None:
+            kptsi = kptsj = self.kpts_scaled
+            kptsij = kptsi[:,None,:] + kptsj[None,:,:]
+            diff = kptsij[:,:,None,:] - self.kpts_scaled[None,None,:,:]
+            diff = round_to_fbz(diff, tol=tol)
+            idx = np.where(np.sum(abs(diff), axis=-1) < tol)
+
+            nk = self.nkpts
+            table= -np.ones((nk,nk), dtype=int)
+            table[idx[0],idx[1]] = idx[2]
+            assert (table > -1).all()
+            self._addition_table = table
+        return self._addition_table
+
+    @property
+    def inverse_table(self, tol=KPT_DIFF_TOL):
+        if self._inverse_table is None:
+            diff = -self.kpts_scaled[:,None,:] - self.kpts_scaled[None,:,:]
+            diff = round_to_fbz(diff, tol=tol)
+            idx = np.where(np.sum(abs(diff), axis=-1) < tol)
+
+            table = -np.ones((self.nkpts,), dtype=int)
+            table[idx[0]] = idx[1]
+            assert (table > -1).all()
+            self._inverse_table = table
+        return self._inverse_table
+
+    def little_cogroups(self, return_indices=True):
+        if self._copgs is not None:
+            return self._copgs, self._copg_ops_map_ibz2bz
+        copgs = []
+        indices = []
+        for ki in range(self.nkpts):
+            ki_ibz = self.bz2ibz[ki]
+            ops_ibz = self.little_cogroup_ops[ki_ibz]
+            elements = np.sort([PGElement(self.ops[i].rot) for i in ops_ibz])
+            iop = self.stars_ops_bz[ki]
+            op_i = PGElement(self.ops[iop].rot)
+            elements_i = np.asarray([op_i @ g @ op_i.inv() for g in elements])
+            idx = np.argsort(elements_i)
+            indices.append(idx)
+            copgs.append(PointGroup(elements_i[idx]))
+        self._copgs, self._copg_ops_map_ibz2bz = copgs, indices
+        return self._copgs, self._copg_ops_map_ibz2bz
+
+    def little_cogroup_rep(self, ki, ir):
+        copgs, indices = self.little_cogroups()
+        ki_ibz = self.bz2ibz[ki]
+        pg_ibz = copgs[self.ibz2bz[ki_ibz]]
+        chi = pg_ibz.get_irrep_chi(ir)
+        chi_ki = chi[indices[ki]]
+        return Representation(copgs[ki], chi=chi_ki)
+
     make_kpts_ibz = make_kpts_ibz
     make_ktuples_ibz = make_ktuples_ibz
     make_k4_ibz = make_k4_ibz
@@ -983,6 +1004,7 @@ class KPoints(symm.Symmetry, lib.StreamObject):
     transform_fock = transform_fock
     transform_1e_operator = transform_1e_operator
     dm_at_ref_cell = dm_at_ref_cell
+
 
 if __name__ == "__main__":
     import numpy

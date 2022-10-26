@@ -47,11 +47,13 @@ def round_to_fbz(kpts, wrap_around=False, tol=KPT_DIFF_TOL):
             Default value is 1e-6.
     '''
     decimal = -np.log10((tol+1e-16)/10.).astype(int)
-    kpts_round = np.mod(kpts, 1).round(decimal)
-    kpts_round = np.mod(kpts_round, 1)
+    kpts_fbz = np.mod(kpts, 1)
+    kpts_fbz = lib.cleanse(kpts_fbz, axis=0, tol=tol)
+    kpts_fbz = kpts_fbz.round(decimal)
+    kpts_fbz = np.mod(kpts_fbz, 1)
     if wrap_around:
-        kpts_round[kpts_round >= 0.5] -= 1.0
-    return kpts_round
+        kpts_fbz[kpts_fbz >= 0.5] -= 1.0
+    return kpts_fbz
 
 def member(kpt, kpts):
     kpts = np.reshape(kpts, (len(kpts),kpt.size))

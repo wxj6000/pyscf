@@ -40,12 +40,12 @@ def get_Dmat(op, l):
     '''
     fac = 1
     det_op = det(op)
-    if det_op < 0: 
+    if det_op < 0:
         # improper rotation has |R| = -1
         assert abs(det_op + 1) < 1e-9
         op = -1 * op
-        fac = (-1) ** l 
-        
+        fac = (-1) ** l
+
     c1 = XYZ
     c2 = np.dot(inv(op), c1.T).T
     alpha, beta, gamma = get_euler_angles(c1, c2)

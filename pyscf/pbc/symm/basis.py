@@ -25,7 +25,7 @@ from pyscf.pbc.symm import symmetry
 from pyscf.pbc.symm.group import PGElement, PointGroup
 
 def _symm_adapted_basis(cell, kpt_scaled, pg, spg_ops, Dmats, tol=1e-9):
-    chartab = pg.character_table(return_full_table=True)[1]
+    chartab = pg.character_table(return_full_table=True)
     dim = chartab[:,0]
     nirrep = len(chartab)
     nao = cell.nao

@@ -1195,7 +1195,7 @@ def split_reshape(a, shapes):
         return tensors, size
     return sub_split(a, shapes)[0]
 
-def cleanse_array(a, axis=0, tol=0):
+def cleanse(a, axis=0, tol=0):
     '''
     Remove floating-point errors by setting the
     numbers with differences smaller than `tol`
