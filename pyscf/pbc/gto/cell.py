@@ -1216,6 +1216,15 @@ class Cell(mole.Mole):
 
     tot_electrons = tot_electrons
 
+    def _build_symmetry(self, kpts=None, **kwargs):
+        '''Construct symmetry adapted crystalline atomic orbitals
+        '''
+        from pyscf.pbc.symm.basis import symm_adapted_basis
+        if not isinstance(kpts, libkpts.KPoints):
+            return mole.Mole._build_symmetry(self)
+        self.symm_orb, self.irrep_id = symm_adapted_basis(self, kpts)
+        return self
+
 #Note: Exculde dump_input, parse_arg, basis from kwargs to avoid parsing twice
     def build(self, dump_input=True, parse_arg=True,
               a=None, mesh=None, ke_cutoff=None, precision=None, nimgs=None,

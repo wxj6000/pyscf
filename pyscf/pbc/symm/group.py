@@ -19,6 +19,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 from pyscf.pbc.symm import geom
+from pyscf.pbc.symm.tables import SchoenfliesNotation
 
 class GroupElement(ABC):
     '''
@@ -148,6 +149,8 @@ class FiniteGroup(ABC):
         self._conjugacy_mask = None
         self._chartab_full = None
         self._chartab = None
+        self._group_name = None
+        self._group_index = None
 
     @staticmethod
     @abstractmethod
@@ -377,11 +380,20 @@ class PointGroup(FiniteGroup):
     The class for crystallographic point groups.
     '''
     def group_name(self, notation='international'):
+        if self._group_name is not None and notation=='international':
+            return self._group_name
         name = geom.get_crystal_class(None, self.elements)[0]
+        self._group_name = name
         if notation.lower().startswith('scho'): # Schoenflies
-            from pyscf.pbc.symm.tables import SchoenfliesNotation
             name = SchoenfliesNotation[name]
         return name
+
+    @property
+    def group_index(self):
+        if self._group_index is None:
+            name = self.group_name()
+            self._group_index = list(SchoenfliesNotation.keys()).index(name)
+        return self._group_index
 
     @staticmethod
     def elements_from_hash(hashes, dimension=3):

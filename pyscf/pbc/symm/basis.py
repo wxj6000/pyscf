@@ -76,6 +76,7 @@ def _symm_adapted_basis(cell, kpt_scaled, pg, spg_ops, Dmats, tol=1e-9):
             icol += degen * nctr
 
     sos = []
+    irrep_ids = []
     for ir in range(nirrep):
         idx = np.where(np.sum(abs(cbase[ir]), axis=0) > tol)[0]
         so = cbase[ir][:,idx]
@@ -83,8 +84,9 @@ def _symm_adapted_basis(cell, kpt_scaled, pg, spg_ops, Dmats, tol=1e-9):
             so = so.real
         if so.shape[-1] > 0:
             so = _gram_schmidt(so)
-        sos.append(so)
-    return sos
+            sos.append(so)
+            irrep_ids.append(ir)
+    return sos, irrep_ids
 
 def _gram_schmidt(v, tol=1e-9):
     ncol = v.shape[-1]
@@ -103,7 +105,8 @@ def _gram_schmidt(v, tol=1e-9):
     return u
 
 def symm_adapted_basis(cell, kpts, tol=1e-9):
-    so_k = []
+    sos_ks = []
+    irrep_ids_ks = []
     Dmats = kpts.Dmats
     for i, ops in enumerate(kpts.little_cogroup_ops):
         kpt_scaled = kpts.kpts_scaled_ibz[i]
@@ -119,9 +122,10 @@ def symm_adapted_basis(cell, kpts, tol=1e-9):
             spg_ops.append(kpts.ops[iop])
         elements = elements[sort_idx]
         pg = PointGroup(elements)
-        so = _symm_adapted_basis(cell, kpt_scaled, pg, spg_ops, Dmats_small, tol)
-        so_k.append(so)
-    return so_k
+        sos, irrep_ids = _symm_adapted_basis(cell, kpt_scaled, pg, spg_ops, Dmats_small, tol)
+        sos_ks.append(sos)
+        irrep_ids_ks.append(irrep_ids)
+    return sos_ks, irrep_ids_ks
 
 if __name__ == "__main__":
     from pyscf.pbc import gto

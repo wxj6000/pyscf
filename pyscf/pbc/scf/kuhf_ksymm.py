@@ -63,8 +63,8 @@ def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
                 np.count_nonzero(mo_occ_kpts[0][k] == 0) > 0):
                 logger.debug(mf, '  %2d (%6.3f %6.3f %6.3f)   %s %s',
                              k, kpt[0], kpt[1], kpt[2],
-                             mo_energy_kpts[0][k][mo_occ_kpts[0][k]> 0],
-                             mo_energy_kpts[0][k][mo_occ_kpts[0][k]==0])
+                             np.sort(mo_energy_kpts[0][k][mo_occ_kpts[0][k]> 0]),
+                             np.sort(mo_energy_kpts[0][k][mo_occ_kpts[0][k]==0]))
             else:
                 logger.debug(mf, '  %2d (%6.3f %6.3f %6.3f)   %s',
                              k, kpt[0], kpt[1], kpt[2], mo_energy_kpts[0][k])
@@ -74,8 +74,8 @@ def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
                 np.count_nonzero(mo_occ_kpts[1][k] == 0) > 0):
                 logger.debug(mf, '  %2d (%6.3f %6.3f %6.3f)   %s %s',
                              k, kpt[0], kpt[1], kpt[2],
-                             mo_energy_kpts[1][k][mo_occ_kpts[1][k]> 0],
-                             mo_energy_kpts[1][k][mo_occ_kpts[1][k]==0])
+                             np.sort(mo_energy_kpts[1][k][mo_occ_kpts[1][k]> 0]),
+                             np.sort(mo_energy_kpts[1][k][mo_occ_kpts[1][k]==0]))
             else:
                 logger.debug(mf, '  %2d (%6.3f %6.3f %6.3f)   %s',
                              k, kpt[0], kpt[1], kpt[2], mo_energy_kpts[1][k])
@@ -114,8 +114,9 @@ class KsymAdaptedKUHF(khf_ksymm.KsymAdaptedKSCF, kuhf.KUHF):
     KUHF with k-point symmetry
     """
     def __init__(self, cell, kpts=libkpts.KPoints(),
-                 exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald')):
-        self._kpts = None
+                 exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald'),
+                 use_ao_symmetry=False):
+        khf_ksymm.ksymm_scf_common_init(self, cell, kpts, use_ao_symmetry)
         kuhf.KUHF.__init__(self, cell, kpts, exxdiv)
 
     @property
@@ -189,6 +190,43 @@ class KsymAdaptedKUHF(khf_ksymm.KsymAdaptedKSCF, kuhf.KUHF):
                          'of electrons %s', ne.mean()/nkpts, nelec/nkpts)
             dm_kpts *= (nelec / ne).reshape(2,-1,1,1)
         return dm_kpts
+
+    def eig(self, h_kpts, s_kpts):
+        e_a, c_a = khf_ksymm.KsymAdaptedKSCF.eig(self, h_kpts[0], s_kpts)
+        e_b, c_b = khf_ksymm.KsymAdaptedKSCF.eig(self, h_kpts[1], s_kpts)
+        return (e_a,e_b), (c_a,c_b)
+
+    def get_orbsym(self, mo_coeff=None, s=None):
+        if mo_coeff is None:
+            mo_coeff = self.mo_coeff
+        if s is None:
+            s = self.get_ovlp()
+
+        orbsym_a = khf_ksymm.KsymAdaptedKSCF.get_orbsym(self, mo_coeff[0], s)
+        orbsym_b = khf_ksymm.KsymAdaptedKSCF.get_orbsym(self, mo_coeff[1], s)
+        return (orbsym_a, orbsym_b)
+
+    orbsym = property(get_orbsym)
+
+    def _finalize(self):
+        from pyscf.scf import chkfile as mol_chkfile
+        kuhf.KUHF._finalize(self)
+        if not self.use_ao_symmetry:
+            return
+
+        orbsym = self.get_orbsym()
+        for s in range(2):
+            for k, mo_e in enumerate(self.mo_energy[s]):
+                idx = np.argsort(mo_e.round(9), kind='mergesort')
+                self.mo_energy[s][k] = self.mo_energy[s][k][idx]
+                self.mo_occ[s][k] = self.mo_occ[s][k][idx]
+                self.mo_coeff[s][k] = lib.tag_array(self.mo_coeff[s][k][:,idx],
+                                                    orbsym=orbsym[s][k][idx])
+        if self.chkfile:
+            from pyscf.scf.chkfile import dump_scf
+            dump_scf(self.cell, self.chkfile, self.e_tot, self.mo_energy,
+                     self.mo_coeff, self.mo_occ, overwrite_mol=False)
+        return self
 
     get_occ = get_occ
     energy_elec = energy_elec

@@ -109,8 +109,8 @@ def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
         for k,kpt in enumerate(mf.cell.get_scaled_kpts(mf.kpts, kpts_in_ibz=False)):
             logger.debug(mf, '  %2d (%6.3f %6.3f %6.3f)   %s %s',
                          k, kpt[0], kpt[1], kpt[2],
-                         mo_energy_kpts[k][mo_occ_kpts[k]> 0],
-                         mo_energy_kpts[k][mo_occ_kpts[k]==0])
+                         np.sort(mo_energy_kpts[k][mo_occ_kpts[k]> 0]),
+                         np.sort(mo_energy_kpts[k][mo_occ_kpts[k]==0]))
         np.set_printoptions(threshold=1000)
 
     mo_occ_kpts = kpts.check_mo_occ_symmetry(mo_occ_kpts)
@@ -122,8 +122,9 @@ class KsymAdaptedKGHF(khf_ksymm.KsymAdaptedKSCF, kghf.KGHF):
     KGHF with k-point symmetry
     """
     def __init__(self, cell, kpts=libkpts.KPoints(),
-                 exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald')):
-        self._kpts = None
+                 exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald'),
+                 use_ao_symmetry=False):
+        khf_ksymm.ksymm_scf_common_init(self, cell, kpts, use_ao_symmetry)
         kghf.KGHF.__init__(self, cell, kpts, exxdiv)
 
     def get_hcore(self, cell=None, kpts=None):

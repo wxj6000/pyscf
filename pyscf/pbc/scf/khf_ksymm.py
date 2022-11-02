@@ -62,13 +62,39 @@ def get_rho(mf, dm=None, grids=None, kpts=None):
     dm = kpts.transform_dm(dm)
     return khf.get_rho(mf, dm, grids, kpts.kpts)
 
+def eig(kmf, h_kpts, s_kpts):
+    from pyscf.scf.hf_symm import eig as eig_symm
+    cell = kmf.cell
+    symm_orb = cell.symm_orb
+    irrep_id = cell.irrep_id
+
+    nkpts = len(h_kpts)
+    assert len(symm_orb) == nkpts
+    eig_kpts = []
+    mo_coeff_kpts = []
+
+    for k in range(nkpts):
+        e, c = eig_symm(kmf, h_kpts[k], s_kpts[k], symm_orb[k], irrep_id[k])
+        eig_kpts.append(e)
+        mo_coeff_kpts.append(c)
+    return eig_kpts, mo_coeff_kpts
+
+def ksymm_scf_common_init(kmf, cell, kpts, use_ao_symmetry=False):
+    kmf._kpts = None
+    kmf.use_ao_symmetry = use_ao_symmetry
+    if use_ao_symmetry and cell.symm_orb is None:
+        cell._build_symmetry(kpts)
+    return kmf
+
+
 class KsymAdaptedKSCF(khf.KSCF):
     """
     KRHF with k-point symmetry
     """
     def __init__(self, cell, kpts=libkpts.KPoints(),
-                 exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald')):
-        self._kpts = None
+                 exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald'),
+                 use_ao_symmetry=False):
+        ksymm_scf_common_init(self, cell, kpts, use_ao_symmetry)
         khf.KSCF.__init__(self, cell, kpts=kpts, exxdiv=exxdiv)
 
     @property
@@ -210,6 +236,50 @@ class KsymAdaptedKSCF(khf.KSCF):
             mol_hf.SCF.dump_chk(self, envs)
             with h5py.File(self.chkfile, 'a') as fh5:
                 fh5['scf/kpts'] = self.kpts.kpts_ibz #FIXME Shall we rebuild kpts? If so, more info is needed.
+        return self
+
+    def eig(self, h_kpts, s_kpts):
+        if self.use_ao_symmetry:
+            return eig(self, h_kpts, s_kpts)
+        else:
+            return khf.KSCF.eig(self, h_kpts, s_kpts)
+
+    def get_orbsym(self, mo_coeff=None, s=None):
+        if not self.use_ao_symmetry:
+            raise RuntimeError("AO symmetry not initiated")
+        from pyscf.scf.hf_symm import get_orbsym
+        if mo_coeff is None:
+            mo_coeff = self.mo_coeff
+        if s is None:
+            s = self.get_ovlp()
+
+        cell = self.cell
+        symm_orb = cell.symm_orb
+        irrep_id = cell.irrep_id
+        orbsym = []
+        for k in range(len(mo_coeff)):
+            orbsym_k = np.asarray(get_orbsym(cell, mo_coeff[k], s=s[k],
+                                             symm_orb=symm_orb[k], irrep_id=irrep_id[k]))
+            orbsym.append(orbsym_k)
+        return orbsym
+
+    orbsym = property(get_orbsym)
+
+    def _finalize(self):
+        khf.KSCF._finalize(self)
+        if not self.use_ao_symmetry:
+            return self
+
+        orbsym = self.get_orbsym()
+        for k, mo_e in enumerate(self.mo_energy):
+            idx = np.argsort(mo_e.round(9), kind='mergesort')
+            self.mo_energy[k] = self.mo_energy[k][idx]
+            self.mo_occ[k] = self.mo_occ[k][idx]
+            self.mo_coeff[k] = lib.tag_array(self.mo_coeff[k][:,idx], orbsym=orbsym[k][idx])
+        if self.chkfile:
+            from pyscf.scf.chkfile import dump_scf
+            dump_scf(self.cell, self.chkfile, self.e_tot, self.mo_energy,
+                     self.mo_coeff, self.mo_occ, overwrite_mol=False)
         return self
 
     get_rho = get_rho
