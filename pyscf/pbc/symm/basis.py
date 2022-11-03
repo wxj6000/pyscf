@@ -30,11 +30,11 @@ def _symm_adapted_basis(cell, kpt_scaled, pg, spg_ops, Dmats, tol=1e-9):
     nirrep = len(chartab)
     nao = cell.nao
     atm_maps = []
-    #phases = []
+    phases = []
     for op in spg_ops:
         atm_map, phase = symmetry._get_phase(cell, op, kpt_scaled)
         atm_maps.append(atm_map)
-        #phases.append(phase)
+        phases.append(phase)
     atm_maps = np.asarray(atm_maps)
     tmp = np.unique(atm_maps, axis=0)
     tmp = np.sort(tmp, axis=0)
@@ -46,34 +46,35 @@ def _symm_adapted_basis(cell, kpt_scaled, pg, spg_ops, Dmats, tol=1e-9):
     aoslice = cell.aoslice_by_atom()
     cbase = np.zeros((nirrep, nao, nao), dtype=np.complex128)
     for atom_ids in eql_atom_ids:
-        iatm = atom_ids[0]
-        op_relate_idx = []
-        for iop in range(pg.order):
-            op_relate_idx.append(atm_maps[iop][iatm])
-        ao_loc = np.asarray([aoslice[i,2] for i in op_relate_idx])
+        #iatm = atom_ids[0]
+        for iatm in atom_ids:
+            op_relate_idx = []
+            for iop in range(pg.order):
+                op_relate_idx.append(atm_maps[iop][iatm])
+            ao_loc = np.asarray([aoslice[i,2] for i in op_relate_idx])
 
-        b0, b1 = aoslice[iatm,:2]
-        ioff = 0
-        icol = aoslice[iatm, 2]
-        for ib in range(b0, b1):
-            nctr = cell.bas_nctr(ib)
-            l = cell.bas_angular(ib)
-            if cell.cart:
-                degen = (l+1) * (l+2) // 2
-            else:
-                degen = l * 2 + 1
+            b0, b1 = aoslice[iatm,:2]
+            ioff = 0
+            icol = aoslice[iatm, 2]
+            for ib in range(b0, b1):
+                nctr = cell.bas_nctr(ib)
+                l = cell.bas_angular(ib)
+                if cell.cart:
+                    degen = (l+1) * (l+2) // 2
+                else:
+                    degen = l * 2 + 1
 
-            for n in range(degen):
-                for iop in range(pg.order):
-                    Dmat = Dmats[iop][l]
-                    fac = dim/pg.order * chartab[:,iop].conj() #* phases[iop][iatm]
-                    tmp = np.einsum('x,y->xy', fac, Dmat[:,n])
-                    idx = ao_loc[iop] + ioff
-                    for ictr in range(nctr):
-                        cbase[:, idx:idx+degen, icol+n+ictr*degen] += tmp
-                        idx += degen
-            ioff += degen * nctr
-            icol += degen * nctr
+                for n in range(degen):
+                    for iop in range(pg.order):
+                        Dmat = Dmats[iop][l]
+                        fac = dim/pg.order * chartab[:,iop].conj() * phases[iop][iatm]
+                        tmp = np.einsum('x,y->xy', fac, Dmat[:,n])
+                        idx = ao_loc[iop] + ioff
+                        for ictr in range(nctr):
+                            cbase[:, idx:idx+degen, icol+n+ictr*degen] += tmp
+                            idx += degen
+                ioff += degen * nctr
+                icol += degen * nctr
 
     sos = []
     irrep_ids = []
