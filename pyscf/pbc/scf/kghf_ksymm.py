@@ -76,18 +76,15 @@ def get_jk(mf, cell=None, dm_kpts=None, hermi=0, kpts=None, kpts_band=None,
 
     return vj, vk
 
+@lib.with_doc(kghf.get_occ.__doc__)
 def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
-    '''Label the occupancies for each orbital for sampled k-points.
-
-    This is a k-point version of scf.hf.SCF.get_occ
-    '''
-    if mo_energy_kpts is None: mo_energy_kpts = mf.mo_energy
+    if mo_energy_kpts is None:
+        mo_energy_kpts = mf.mo_energy
     kpts = mf.kpts
+    assert isinstance(kpts, libkpts.KPoints)
+
+    nocc = mf.cell.nelectron * kpts.nkpts
     mo_energy_kpts = kpts.transform_mo_energy(mo_energy_kpts)
-
-    nkpts = len(mo_energy_kpts)
-    nocc = mf.cell.nelectron * nkpts
-
     mo_energy = np.sort(np.hstack(mo_energy_kpts))
     fermi = mo_energy[nocc-1]
     mo_occ_kpts = []

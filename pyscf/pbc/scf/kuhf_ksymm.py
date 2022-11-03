@@ -26,12 +26,13 @@ from pyscf.pbc.lib.kpts import KPoints
 
 @lib.with_doc(kuhf.get_occ.__doc__)
 def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
-    if mo_energy_kpts is None: mo_energy_kpts = mf.mo_energy
+    if mo_energy_kpts is None:
+        mo_energy_kpts = mf.mo_energy
     kpts = mf.kpts
+    assert isinstance(kpts, KPoints)
 
     nocc_a, nocc_b = mf.nelec
-    if isinstance(kpts, KPoints):
-        mo_energy_kpts = kpts.transform_mo_energy(mo_energy_kpts)
+    mo_energy_kpts = kpts.transform_mo_energy(mo_energy_kpts)
     mo_energy = np.sort(np.hstack(mo_energy_kpts[0]))
     fermi_a = mo_energy[nocc_a-1]
     mo_occ_kpts = [[], []]

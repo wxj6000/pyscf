@@ -26,6 +26,44 @@ from pyscf.pbc import tools
 from pyscf.pbc.lib import kpts as libkpts
 from pyscf.pbc.scf import khf
 
+@lib.with_doc(khf.get_occ.__doc__)
+def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
+    if mo_energy_kpts is None:
+        mo_energy_kpts = mf.mo_energy
+    cell = mf.cell
+    kpts = mf.kpts
+    assert isinstance(kpts, libkpts.KPoints)
+
+    nocc = cell.tot_electrons(kpts.nkpts) // 2
+    mo_energy_kpts = kpts.transform_mo_energy(mo_energy_kpts)
+    mo_energy = np.sort(np.hstack(mo_energy_kpts))
+    fermi = mo_energy[nocc-1]
+    mo_occ_kpts = []
+    for mo_e in mo_energy_kpts:
+        mo_occ_kpts.append((mo_e <= fermi).astype(np.double) * 2)
+
+    if nocc < mo_energy.size:
+        logger.info(mf, 'HOMO = %.12g  LUMO = %.12g',
+                    mo_energy[nocc-1], mo_energy[nocc])
+        if mo_energy[nocc-1]+1e-3 > mo_energy[nocc]:
+            logger.warn(mf, 'HOMO %.12g == LUMO %.12g',
+                        mo_energy[nocc-1], mo_energy[nocc])
+    else:
+        logger.info(mf, 'HOMO = %.12g', mo_energy[nocc-1])
+
+    if mf.verbose >= logger.DEBUG:
+        np.set_printoptions(threshold=len(mo_energy))
+        logger.debug(mf, '     k-point                  mo_energy')
+        for k,kpt in enumerate(mf.cell.get_scaled_kpts(mf.kpts, kpts_in_ibz=False)):
+            logger.debug(mf, '  %2d (%6.3f %6.3f %6.3f)   %s %s',
+                         k, kpt[0], kpt[1], kpt[2],
+                         np.sort(mo_energy_kpts[k][mo_occ_kpts[k]> 0]),
+                         np.sort(mo_energy_kpts[k][mo_occ_kpts[k]==0]))
+        np.set_printoptions(threshold=1000)
+
+    mo_occ_kpts = kpts.check_mo_occ_symmetry(mo_occ_kpts)
+    return mo_occ_kpts
+
 @lib.with_doc(khf.energy_elec.__doc__)
 def energy_elec(mf, dm_kpts=None, h1e_kpts=None, vhf_kpts=None):
     if dm_kpts is None: dm_kpts = mf.make_rdm1()
@@ -284,6 +322,7 @@ class KsymAdaptedKSCF(khf.KSCF):
                        'mo_coeff': self.mo_coeff, 'mo_occ': self.mo_occ})
         return self
 
+    get_occ = get_occ
     get_rho = get_rho
     energy_elec = energy_elec
 
