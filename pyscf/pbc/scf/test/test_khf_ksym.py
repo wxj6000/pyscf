@@ -257,10 +257,10 @@ class KnownValues(unittest.TestCase):
         cell.basis = [[0, [1.2, 1]]]
         cell.build()
         kpts = cell.make_kpts([2,2,1],space_group_symmetry=True,time_reversal_symmetry=True)
-        mf = pscf.KGHF(cell, kpts)
+        mf = pscf.KGHF(cell, kpts).density_fit()
         mf.kernel()
         kpts0 = cell.make_kpts([2,2,1])
-        mf0 = pscf.KGHF(cell, kpts0)
+        mf0 = pscf.KGHF(cell, kpts0).density_fit()
         mf0.kernel()
         self.assertAlmostEqual(mf0.e_tot, mf.e_tot, 9)
 

@@ -835,6 +835,7 @@ class KPoints(symm.Symmetry, lib.StreamObject):
         self.stars_ops = []
         self.stars_ops_bz = np.zeros(nkpts, dtype=int)
         self.time_reversal_symm_bz = np.zeros(nkpts, dtype=int)
+        self.little_cogroup_ops = []
 
         #private variables
         self._nkpts = len(self.kpts)

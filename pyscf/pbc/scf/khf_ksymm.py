@@ -79,10 +79,13 @@ def eig(kmf, h_kpts, s_kpts):
         mo_coeff_kpts.append(c)
     return eig_kpts, mo_coeff_kpts
 
-def ksymm_scf_common_init(kmf, cell, kpts, use_ao_symmetry=False):
+def ksymm_scf_common_init(kmf, cell, kpts, use_ao_symmetry=True):
     kmf._kpts = None
-    kmf.use_ao_symmetry = use_ao_symmetry
-    if use_ao_symmetry and cell.symm_orb is None:
+    kmf.use_ao_symmetry = (use_ao_symmetry and
+                           not kpts.time_reversal and
+                           kpts.symmorphic and
+                           len(kpts.little_cogroup_ops) > 0)
+    if kmf.use_ao_symmetry and cell.symm_orb is None:
         cell._build_symmetry(kpts)
     return kmf
 
@@ -93,7 +96,7 @@ class KsymAdaptedKSCF(khf.KSCF):
     """
     def __init__(self, cell, kpts=libkpts.KPoints(),
                  exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald'),
-                 use_ao_symmetry=False):
+                 use_ao_symmetry=True):
         ksymm_scf_common_init(self, cell, kpts, use_ao_symmetry)
         khf.KSCF.__init__(self, cell, kpts=kpts, exxdiv=exxdiv)
 
@@ -276,10 +279,9 @@ class KsymAdaptedKSCF(khf.KSCF):
             self.mo_energy[k] = self.mo_energy[k][idx]
             self.mo_occ[k] = self.mo_occ[k][idx]
             self.mo_coeff[k] = lib.tag_array(self.mo_coeff[k][:,idx], orbsym=orbsym[k][idx])
-        if self.chkfile:
-            from pyscf.scf.chkfile import dump_scf
-            dump_scf(self.cell, self.chkfile, self.e_tot, self.mo_energy,
-                     self.mo_coeff, self.mo_occ, overwrite_mol=False)
+
+        self.dump_chk({'e_tot': self.e_tot, 'mo_energy': self.mo_energy,
+                       'mo_coeff': self.mo_coeff, 'mo_occ': self.mo_occ})
         return self
 
     get_rho = get_rho

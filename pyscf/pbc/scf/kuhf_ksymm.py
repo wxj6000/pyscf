@@ -115,7 +115,7 @@ class KsymAdaptedKUHF(khf_ksymm.KsymAdaptedKSCF, kuhf.KUHF):
     """
     def __init__(self, cell, kpts=libkpts.KPoints(),
                  exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald'),
-                 use_ao_symmetry=False):
+                 use_ao_symmetry=True):
         khf_ksymm.ksymm_scf_common_init(self, cell, kpts, use_ao_symmetry)
         kuhf.KUHF.__init__(self, cell, kpts, exxdiv)
 
@@ -222,10 +222,8 @@ class KsymAdaptedKUHF(khf_ksymm.KsymAdaptedKSCF, kuhf.KUHF):
                 self.mo_occ[s][k] = self.mo_occ[s][k][idx]
                 self.mo_coeff[s][k] = lib.tag_array(self.mo_coeff[s][k][:,idx],
                                                     orbsym=orbsym[s][k][idx])
-        if self.chkfile:
-            from pyscf.scf.chkfile import dump_scf
-            dump_scf(self.cell, self.chkfile, self.e_tot, self.mo_energy,
-                     self.mo_coeff, self.mo_occ, overwrite_mol=False)
+        self.dump_chk({'e_tot': self.e_tot, 'mo_energy': self.mo_energy,
+                       'mo_coeff': self.mo_coeff, 'mo_occ': self.mo_occ})
         return self
 
     get_occ = get_occ

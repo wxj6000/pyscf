@@ -30,11 +30,11 @@ def _symm_adapted_basis(cell, kpt_scaled, pg, spg_ops, Dmats, tol=1e-9):
     nirrep = len(chartab)
     nao = cell.nao
     atm_maps = []
-    phases = []
+    #phases = []
     for op in spg_ops:
         atm_map, phase = symmetry._get_phase(cell, op, kpt_scaled)
         atm_maps.append(atm_map)
-        phases.append(phase)
+        #phases.append(phase)
     atm_maps = np.asarray(atm_maps)
     tmp = np.unique(atm_maps, axis=0)
     tmp = np.sort(tmp, axis=0)
@@ -66,7 +66,7 @@ def _symm_adapted_basis(cell, kpt_scaled, pg, spg_ops, Dmats, tol=1e-9):
             for n in range(degen):
                 for iop in range(pg.order):
                     Dmat = Dmats[iop][l]
-                    fac = dim/pg.order * chartab[:,iop].conj() * phases[iop][iatm]
+                    fac = dim/pg.order * chartab[:,iop].conj() #* phases[iop][iatm]
                     tmp = np.einsum('x,y->xy', fac, Dmat[:,n])
                     idx = ao_loc[iop] + ioff
                     for ictr in range(nctr):
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     cell.verbose = 5
     cell.build()
     kpts = cell.make_kpts([1,1,1], space_group_symmetry=True)
-    so = symm_adapted_basis(cell, kpts)[0]
+    so = symm_adapted_basis(cell, kpts)[0][0]
 
     from pyscf import gto as mol_gto
     from pyscf.symm import geom as mol_geom

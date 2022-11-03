@@ -116,6 +116,23 @@ def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
     mo_occ_kpts = kpts.check_mo_occ_symmetry(mo_occ_kpts)
     return mo_occ_kpts
 
+def eig(kmf, h_kpts, s_kpts):
+    from pyscf.scf.ghf_symm import GHF
+    cell = kmf.cell
+    symm_orb = cell.symm_orb
+    irrep_id = cell.irrep_id
+
+    nkpts = len(h_kpts)
+    assert len(symm_orb) == nkpts
+    eig_kpts = []
+    mo_coeff_kpts = []
+
+    for k in range(nkpts):
+        e, c = GHF.eig(kmf, h_kpts[k], s_kpts[k], symm_orb[k], irrep_id[k])
+        eig_kpts.append(e)
+        mo_coeff_kpts.append(c)
+    return eig_kpts, mo_coeff_kpts
+
 
 class KsymAdaptedKGHF(khf_ksymm.KsymAdaptedKSCF, kghf.KGHF):
     """
@@ -123,7 +140,7 @@ class KsymAdaptedKGHF(khf_ksymm.KsymAdaptedKSCF, kghf.KGHF):
     """
     def __init__(self, cell, kpts=libkpts.KPoints(),
                  exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald'),
-                 use_ao_symmetry=False):
+                 use_ao_symmetry=True):
         khf_ksymm.ksymm_scf_common_init(self, cell, kpts, use_ao_symmetry)
         kghf.KGHF.__init__(self, cell, kpts, exxdiv)
 
@@ -134,6 +151,33 @@ class KsymAdaptedKGHF(khf_ksymm.KsymAdaptedKSCF, kghf.KGHF):
     def get_ovlp(self, cell=None, kpts=None):
         s = khf_ksymm.KsymAdaptedKSCF.get_ovlp(self, cell, kpts)
         return lib.asarray([scipy.linalg.block_diag(x, x) for x in s])
+
+    def eig(self, h_kpts, s_kpts):
+        if self.use_ao_symmetry:
+            return eig(self, h_kpts, s_kpts)
+        else:
+            return kghf.KGHF.eig(self, h_kpts, s_kpts)
+
+    def get_orbsym(self, mo_coeff=None, s=None):
+        if not self.use_ao_symmetry:
+            raise RuntimeError("AO symmetry not initiated")
+        from pyscf.scf.ghf_symm import get_orbsym
+        if mo_coeff is None:
+            mo_coeff = self.mo_coeff
+        if s is None:
+            s = self.get_ovlp()
+
+        cell = self.cell
+        symm_orb = cell.symm_orb
+        irrep_id = cell.irrep_id
+        orbsym = []
+        for k in range(len(mo_coeff)):
+            orbsym_k = np.asarray(get_orbsym(cell, mo_coeff[k], s=s[k],
+                                             symm_orb=symm_orb[k], irrep_id=irrep_id[k]))
+            orbsym.append(orbsym_k)
+        return orbsym
+
+    orbsym = property(get_orbsym)
 
     get_jk = get_jk
     get_occ = get_occ
