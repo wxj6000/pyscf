@@ -119,7 +119,8 @@ def eig(kmf, h_kpts, s_kpts):
 
 def ksymm_scf_common_init(kmf, cell, kpts, use_ao_symmetry=True):
     kmf._kpts = None
-    kmf.use_ao_symmetry = (use_ao_symmetry and
+    kmf.use_ao_symmetry = (cell.dimension == 3 and
+                           use_ao_symmetry and
                            not kpts.time_reversal and
                            kpts.symmorphic and
                            len(kpts.little_cogroup_ops) > 0)
