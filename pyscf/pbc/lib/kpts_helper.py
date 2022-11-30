@@ -411,8 +411,13 @@ class KptsHelper(lib.StreamObject):
                 values are lists of (3,) tuples, enumerating all
                 symmetry-related k-point indices for ERI generation
         '''
-        self.kconserv = get_kconserv(cell, kpts)
-        nkpts = len(kpts)
+        from pyscf.pbc.lib.kpts import KPoints
+        if isinstance(kpts, KPoints):
+            self.kconserv = kpts.get_kconserv()
+            nkpts = kpts.nkpts
+        else:
+            self.kconserv = get_kconserv(cell, kpts)
+            nkpts = len(kpts)
         temp = range(0,nkpts)
         kptlist = lib.cartesian_prod((temp,temp,temp))
         completed = np.zeros((nkpts,nkpts,nkpts), dtype=bool)

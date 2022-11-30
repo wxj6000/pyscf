@@ -16,6 +16,7 @@
 # Authors: Xing Zhang <zhangxing.nju@gmail.com>
 #
 
+from functools import reduce
 import numpy as np
 import ctypes
 from pyscf import lib
@@ -23,7 +24,7 @@ from pyscf.lib import logger
 from pyscf import __config__
 from pyscf.pbc.symm import symmetry as symm
 from pyscf.pbc.symm.group import PGElement, PointGroup, Representation
-from pyscf.pbc.lib.kpts_helper import member, round_to_fbz, KPT_DIFF_TOL, KptsHelper
+from pyscf.pbc.lib.kpts_helper import member, round_to_fbz, KPT_DIFF_TOL
 from numpy.linalg import inv
 
 libpbc = lib.load_library('libpbc')
@@ -195,17 +196,20 @@ def make_ktuples_ibz(kpts, kpts_scaled=None, ntuple=2, tol=KPT_DIFF_TOL):
     ibz_kk_weight = np.bincount(bz2ibz_kk) * (1.0 / nbzk2)
     return ibz2bz_kk, ibz_kk_weight, bz2ibz_kk, kk_group, kk_sym_group
 
-def make_k4_ibz(kpts, sym='s1'):
+def make_k4_ibz(kpts, sym='s1', return_ops=False):
     #physicist's notation
-    ibz2bz, weight, bz2ibz, group, _ = kpts.make_ktuples_ibz(ntuple=3)
-    khelper = KptsHelper(kpts.cell, kpts.kpts)
+    ibz2bz, weight, bz2ibz, group, ops_group = kpts.make_ktuples_ibz(ntuple=3)
+    kconserv = kpts.get_kconserv()
     k4 = []
     for ki, kj, ka in kpts.loop_ktuples(ibz2bz, 3):
-        kb = khelper.kconserv[ki,ka,kj]
+        kb = kconserv[ki,ka,kj]
         k4.append([ki,kj,ka,kb])
 
     if sym == "s1":
-        return np.asarray(k4), np.asarray(weight), np.asarray(bz2ibz)
+        if return_ops:
+            return np.asarray(k4), np.asarray(weight), np.asarray(bz2ibz), ops_group
+        else:
+            return np.asarray(k4), np.asarray(weight), np.asarray(bz2ibz)
     elif sym == "s2" or sym == "s4":
         ibz2ibz_s2 = np.arange(len(k4))
         k4_s2 = []
@@ -243,7 +247,7 @@ def make_k4_ibz(kpts, sym='s1'):
                 if ki in k_tmp and kj in k_tmp and ka in k_tmp and kb in k_tmp:
                     idx = k4.index(k_tmp)
                     for kii,kjj,kaa in kpts.loop_ktuples(group[idx], 3):
-                        kbb = khelper.kconserv[kii,kaa,kjj]
+                        kbb = kconserv[kii,kaa,kjj]
                         if k_sym == [kii,kjj,kaa,kbb]:
                             idx_sym = j
                             break
@@ -722,6 +726,44 @@ def check_mo_occ_symmetry(kpts, mo_occ, tol=1e-5):
         mo_occ_ibz.append(mo_occ[kpts.ibz2bz[k]])
     return mo_occ_ibz
 
+def get_rotation_mat_for_mos(kpts, mo_coeff, ovlp, k1, k2):
+    '''Rotation matrices for rotating MO[k1] to MO[k2] for all the rotations.
+
+    Args:
+        kpts : :class:`KPoints` instance
+            K-point object.
+        mo_coeff : array
+            MO coefficients.
+        ovlp : array
+            Overlap matrix in AOs.
+        k1 : array like
+            Indices of the original k-points.
+        k2 : array like
+            Indices of the target k-points.
+
+    Returns:
+        out : list
+            Rotation matrices.
+    '''
+    from pyscf.pbc.symm.symmetry import _get_rotation_mat
+    cell = kpts.cell
+    nk = len(k1)
+    assert nk == len(k2)
+
+    out = []
+    for k_orig, k_target in zip(k1, k2):
+        mats = []
+        # TODO: only loop over allowed rotations
+        for iop in range(kpts.nop):
+            mat_ao = _get_rotation_mat(cell, kpts.kpts_scaled[k_orig],
+                                       mo_coeff[k_orig], kpts.ops[iop],
+                                       kpts.Dmats[iop])
+            mat = reduce(np.dot,(mo_coeff[k_orig].conj().T, ovlp[k_orig],
+                                 mat_ao.conj().T, mo_coeff[k_target]))
+            mats.append(mat)
+        out.append(np.asarray(mats))
+    return out
+
 def make_kpts(cell, kpts=np.zeros((1,3)),
               space_group_symmetry=False, time_reversal_symmetry=False,
               symmorphic=True):
@@ -964,6 +1006,15 @@ class KPoints(symm.Symmetry, lib.StreamObject):
             self._inverse_table = table
         return self._inverse_table
 
+    def get_kconserv(self):
+        '''Equivalent to `kpts_helper.get_kconserv`,
+           but with better performance.
+        '''
+        add_tab = self.addition_table
+        inv_tab = self.inverse_table
+        kconserv = add_tab[add_tab[:, inv_tab[:]],:]
+        return kconserv
+
     def little_cogroups(self, return_indices=True):
         if self._copgs is not None:
             return self._copgs, self._copg_ops_map_ibz2bz
@@ -993,7 +1044,6 @@ class KPoints(symm.Symmetry, lib.StreamObject):
     make_kpts_ibz = make_kpts_ibz
     make_ktuples_ibz = make_ktuples_ibz
     make_k4_ibz = make_k4_ibz
-    loop_ktuples = loop_ktuples
     symmetrize_density = symmetrize_density
     symmetrize_wavefunction = symmetrize_wavefunction
     transform_mo_coeff = transform_mo_coeff
@@ -1005,7 +1055,7 @@ class KPoints(symm.Symmetry, lib.StreamObject):
     transform_fock = transform_fock
     transform_1e_operator = transform_1e_operator
     dm_at_ref_cell = dm_at_ref_cell
-
+    get_rotation_mat_for_mos = get_rotation_mat_for_mos
 
 if __name__ == "__main__":
     import numpy

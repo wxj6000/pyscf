@@ -1278,6 +1278,38 @@ def locs_to_indices(locs, segement_list):
         idx = numpy.hstack(idx)
     return numpy.asarray(idx, dtype=numpy.int32)
 
+def base_repr_int(number, base, ndigits=None):
+    '''
+    Similar to numpy.base_repr, but returns a list of integers.
+
+    Args:
+        number : int
+            The value to convert. Negative values are converted to
+            their absolute values.
+        base : int
+            Convert `number` to the `base` number system.
+        ndigits : int, optional
+            Number of digits. If given, pad zeros to the left until the number
+            of digits reaches `ndigits`. Default is None, meaning no padding.
+
+    Returns:
+        out : list
+            Representation of `number` in `base` system.
+    '''
+    num = abs(number)
+    res = []
+    if num == 0:
+        res = [0]
+    while num:
+        res.append(num % base)
+        num //= base
+    if ndigits:
+        padding = ndigits - len(res)
+        res += [0] * padding
+    res.reverse()
+    return res
+
+
 if __name__ == '__main__':
     a = numpy.random.random((30,40,5,10))
     b = numpy.random.random((10,30,5,20))
